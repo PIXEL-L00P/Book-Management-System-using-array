@@ -7,6 +7,11 @@
     #include <strings.h>         // Linux/macOS use strcasecmp
 #endif
 
+/*strcmp is the main function. it is case sensitive, as it read chair and ChaiR as two different string.
+  So we should use stricmp(for windows) or strcasecmp(for max or linux)
+  To make it portable(work in any os) we should use those header.
+  Since on windows the #define makes strcasecmp act as _stricmp .
+  On Linux/macOS The strings.h header provides native strcasecmp.*/
 
 struct book_info
 {
@@ -22,6 +27,197 @@ struct book_info **b; /*This is an array of pointers to books,
                         It will holds the address of book .
                         You can say it as pointer to a pointer*/
 
+char filename[256] = ""; // Global variable to store the filename
+
+void get_filename()
+{
+    char response[10];
+    char new_filename[256];
+
+    if (filename[0] != '\0') {
+        // Ask if user wants to use a different file
+        printf("Current file: %s\n", filename);
+        while(1)
+        {
+            printf("Do you want to use a different file? (yes/no): ");
+            fgets(response, sizeof(response), stdin);
+            response[strcspn(response, "\n")] = '\0';
+
+            if (strcasecmp(response, "no") == 0 || strcasecmp(response, "n") == 0)
+            {
+                printf("Using previous file: %s\n", filename);
+                return; // Keep using the same file
+            }
+            else if (strcasecmp(response, "yes") == 0 || strcasecmp(response, "y") == 0)
+            {
+                break; // Continue to get new filename
+            }
+            else
+            {
+                printf("Please answer 'yes' or 'no'.\n");
+            }
+        }
+    }
+
+    // Get new filename
+    while(1)
+    {
+        printf("Enter filename for saving/loading books (with extension .csv): ");
+        fgets(new_filename, sizeof(new_filename), stdin);
+        new_filename[strcspn(new_filename, "\n")] = '\0';
+
+        if (new_filename[0] != '\0')
+        {
+            strcpy(filename, new_filename);
+            printf("Using file: %s\n", filename);
+            save_filename_to_config();
+            break; // Exit the loop when valid filename is provided
+        }
+        else {
+            printf("Error: Please enter a filename.\n");
+        }
+    }
+}
+
+void save_filename_to_config()
+{
+    FILE *config_file = fopen("library_config.txt", "w");
+    if (config_file != NULL) {
+        fprintf(config_file, "%s", filename);
+        fclose(config_file);
+        printf("Configuration saved to library_config.txt\n");
+    } else {
+        printf("Warning: Could not save configuration file\n");
+    }
+}
+
+void load_filename_from_config()
+{
+    FILE *config_file = fopen("library_config.txt", "r");
+    if (config_file != NULL)
+    {
+        if (fgets(filename, sizeof(filename), config_file) != NULL)
+        {
+            filename[strcspn(filename, "\n")] = '\0';
+            printf("Loaded previous configuration: %s\n", filename);
+        }
+        fclose(config_file);
+    }
+    else
+    {
+        printf("No previous configuration found. Starting fresh.\n");
+    }
+}
+
+
+void save_books_to_file()
+{
+    get_filename();
+
+
+    FILE *file = fopen(filename, "w");
+    if (file == NULL) {
+        printf("Error: Could not create file '%s'.\n", filename);
+        return;
+    }
+
+    // Write CSV header
+    fprintf(file, "book_id,title,author\n");
+
+    // Write each book's data
+    for (int i = 0; i < book_count; i++) {
+        fprintf(file, "%d,\"%s\",\"%s\"\n",
+                book[i].book_id, book[i].title, book[i].author);
+    }
+
+    fclose(file);
+    printf("Books saved successfully to '%s'!\n", filename);
+}
+
+void load_books_from_file()
+{
+    if (filename[0] == '\0')
+    {
+        return;
+    }
+
+    FILE *file = fopen(filename, "r");
+    if (file == NULL) {
+        printf("No existing book data found in '%s'. Starting with empty library.\n", filename);
+        return;
+    }
+
+    // Count lines in file (excluding header)
+    int line_count = 0;
+    char buffer[500];
+    fgets(buffer, sizeof(buffer), file); // Skip header
+
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        line_count++;
+    }
+
+    if (line_count == 0) {
+        printf("No books found in file '%s'.\n", filename);
+        fclose(file);
+        return;
+    }
+
+    // Reset file pointer
+    rewind(file);
+    fgets(buffer, sizeof(buffer), file); // Skip header again
+
+    // Save current book count to append to existing books
+    int original_count = book_count;
+
+    // Reallocate memory to accommodate both existing and new books
+    struct book_info *temp = (struct book_info*)realloc(book, (book_count + line_count) * sizeof(struct book_info));
+    if (temp == NULL) {
+        printf("Memory allocation failed.\n");
+        fclose(file);
+        return;
+    }
+    book = temp;
+
+    // Read books from file and append to existing books
+    int loaded_count = 0;
+    while (fgets(buffer, sizeof(buffer), file) != NULL && loaded_count < line_count) {
+        // Remove newline character
+        buffer[strcspn(buffer, "\n")] = '\0';
+
+        // Parse CSV line
+        char *token;
+        token = strtok(buffer, ",");
+        if (token == NULL) continue;
+
+        book[book_count + loaded_count].book_id = atoi(token);
+
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        // Remove quotes if present
+        if (token[0] == '"' && token[strlen(token)-1] == '"') {
+            token[strlen(token)-1] = '\0';
+            strcpy(book[book_count + loaded_count].title, token + 1);
+        } else {
+            strcpy(book[book_count + loaded_count].title, token);
+        }
+
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        // Remove quotes if present
+        if (token[0] == '"' && token[strlen(token)-1] == '"') {
+            token[strlen(token)-1] = '\0';
+            strcpy(book[book_count + loaded_count].author, token + 1);
+        } else {
+            strcpy(book[book_count + loaded_count].author, token);
+        }
+
+        loaded_count++;
+    }
+
+    book_count += loaded_count;
+    fclose(file);
+    printf("Successfully loaded %d books from '%s'! Total books: %d\n", loaded_count, filename, book_count);
+}
 
 int is_empty()
 {
@@ -201,33 +397,34 @@ void sorted_by_author()
     }
 }
 
-int search_by_author(char ti[200])
+int search_by_author(char au[200])
 {
-    int first = 0, last = book_count-1, mid, result = -1;
+    sorted_by_author();
 
-    while(first<=last)
+    // Find first occurrence -> the 1st position by the author name
+    int first = 0, last = book_count - 1;
+    int result = -1;
+
+    while (first <= last)
     {
-        mid = (first + last)/2;
-        int value = strcasecmp(b[mid]->author,ti);
+        int mid = (first + last) / 2;
+        int value = strcasecmp(b[mid]->author, au);
 
-
-        if(value == 0)
+        if (value == 0)
         {
-
-            result = b[mid] - book;
-            break;
+            result = mid;
+            last = mid - 1; // Look for earlier occurrences
         }
-
-        else if(value > 0)
+        else if (value > 0)
         {
-            last = mid-1;
+            last = mid - 1;
         }
-
         else
         {
-            first = mid+1;
+            first = mid + 1;
         }
     }
+
     return result;
 }
 
@@ -395,7 +592,7 @@ void remove_book()
         fgets(ch, sizeof(ch), stdin);
         ch[strcspn(ch, "\n")] = '\0';
 
-        if(strcasecmp(ch,"No") != 0 || strcasecmp(ch,"No") != 0)
+        if(strcasecmp(ch,"Yes") != 0 || strcasecmp(ch,"No") != 0)
             printf("You need to answer it with yes or no");
 
         else break;
@@ -448,22 +645,25 @@ void Clear_all()
 
 int main()
 {
+    load_filename_from_config();
+    load_books_from_file();
+
     while(1)
     {
         printf("\n  LIBRARY MANAGEMENT SYSTEM\n");
         printf("------------------------------\n");
-        printf("1. Add a new book\n");
-        printf("2. Remove a book\n");
+        printf("1. Add new books\n");
+        printf("2. Remove books\n");
         printf("3. Display books\n");
         printf("4. Search for a book by title\n");
-        printf("5. Search for a book by author\n"); //($)search for a author and show info.
-                                                   // ($)if the author is repeated then show all the info related to it.
-        printf("6. Clear all books\n");
-        printf("7. Exit\n");
-        //($)printf("8. Search for a book by ID\n");($)
+        printf("5. Search for books by author name\n");
+        printf("6. Search for a book by ID\n");
+        printf("7. Clear all books\n");
+        printf("8. Exit\n");
+
 
         char ti[200], ch[10];;
-        int op = verify_pos_integer("Please choose an option (1-7): ");
+        int op = verify_pos_integer("Please choose an option (1-8): ");
         int c, pos;
 
         switch(op)
@@ -525,31 +725,72 @@ int main()
             case 5:
                 printf("\n");
                 if(is_empty())
-                    {
-                        printf("Book list is empty. Add some books then search.\n");
-                        break;
-                    }
+                {
+                    printf("Book list is empty. Add some books then search.\n");
+                    break;
+                }
 
                 while((c = getchar()) != '\n' && c != EOF);
 
-                printf("Enter the author name that you want to find: ");
+                printf("Enter the author name to search: ");
                 fgets(ti, sizeof(ti), stdin);
                 ti[strcspn(ti, "\n")] = '\0';
 
                 sorted_by_author();
-                pos = search_by_author(ti);
+                int pos = search_by_author(ti);
 
-                if(pos==-1)
-                    printf("No book found with the author name\n");
+                if (pos == -1)
+                {
+                    printf("No books found by author: %s\n", ti);
+                    break;
+                }
 
-                else
-                    printf("Book found at %d no. position, ID no- %d\n",pos+1,book[pos].book_id);
+                // Display all books by this author
+                printf("\nBooks by %s:\n", ti);
+                printf("%-10s %-30s\n", "ID", "Title");
+                printf("----------------------------------------\n");
 
-                free(b);  // Free the pointer array here
+                int count = 0;
+                for (int i = pos; i < book_count; i++) {
+                    if (strcasecmp(b[i]->author, ti) == 0) {
+                        printf("%-10d %-30s\n", b[i]->book_id, b[i]->title);
+                        count++;
+                    } else {
+                        break; // Authors are sorted, so we can break when we find a different one
+                    }
+                }
+
+                printf("Total books found: %d\n", count);
+
+
+                free(b); // free the pointer array
                 b = NULL;
                 break;
 
             case 6:
+                printf("\n");
+                if(is_empty())
+                {
+                    printf("No books are available at this moment.\n");
+                    break;
+                }
+
+                int search_id = verify_pos_integer("Enter the book ID to search: ");
+                sorted_by_ID();
+                pos = search_by_ID(search_id);
+
+                if(pos == -1)
+                    printf("No book found with ID %d.\n", search_id);
+
+                else
+                {
+                    printf("Book found:\n");
+                    printf("ID: %d, Title: %s, Author: %s\n",
+                        book[pos].book_id, book[pos].title, book[pos].author);
+                }
+                break;
+
+            case 7:
                 printf("\n");
                 if(is_empty())
                     {
@@ -566,7 +807,7 @@ int main()
                     fgets(ch, sizeof(ch), stdin);
                     ch[strcspn(ch, "\n")] = '\0';
 
-                    if(strcasecmp(ch,"No") != 0 || strcasecmp(ch,"No") != 0)
+                    if(strcasecmp(ch,"Yes") != 0 || strcasecmp(ch,"No") != 0)
                         printf("You need to answer it with yes or no");
 
                     else break;
@@ -582,35 +823,40 @@ int main()
 
                 break;
 
-            case 7:
+            case 8:
                 printf("\n");
 
                 //get confirmation
                 while((c = getchar()) != '\n' && c != EOF);
-
-                while(1)
-                {
-                    printf("Are you sure you want to exit? (yes/no): ");
+                while(1) {
+                    printf("Do you want to save before exiting? (yes/no/cancel): ");
                     fgets(ch, sizeof(ch), stdin);
                     ch[strcspn(ch, "\n")] = '\0';
 
-                    if(strcasecmp(ch,"No") != 0 || strcasecmp(ch,"No") != 0)
-                        printf("You need to answer it with yes or no");
-
-                    else break;
+                    if (strcasecmp(ch, "yes") == 0 || strcasecmp(ch, "y") == 0)
+                    {
+                        save_books_to_file();
+                        printf("Thank you for using the library management system.\n");
+                        printf("Exiting\n");
+                        exit(0);
+                    }
+                    else if (strcasecmp(ch, "no") == 0 || strcasecmp(ch, "n") == 0)
+                    {
+                        printf("Thank you for using the library management system.\n");
+                        printf("Exiting\n");
+                        exit(0);
+                    }
+                    else if (strcasecmp(ch, "cancel") == 0 || strcasecmp(ch, "c") == 0)
+                    {
+                        printf("Exit canceled. Returning to main menu.\n");
+                        break;
+                    }
+                    else {
+                        printf("Please answer 'yes', 'no', or 'cancel'.\n");
+                    }
                 }
-
-                if(strcasecmp(ch,"Yes") == 0)
-                {
-                    Clear_all();
-                    printf("Thank you for using the library management system.\n");
-                    printf("Exiting\n");
-                    exit(0);
-                }
-                else
-                    printf("Going back to main menu...");
-
                 break;
+
 
             default:
                 printf("Your choice must be between 1 to 7. Please try again.\n");
